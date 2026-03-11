@@ -160,7 +160,7 @@ pnpm preview
 
 Full technical documentation covering architecture, database schema, security, deployment, and every component is available as a dedicated documentation site:
 
-[![Documentation](https://img.shields.io/badge/Documentation_Site-C9A84C?style=for-the-badge&logo=readthedocs&logoColor=black)](https://github.com/Ns81000/LTSU_Fee_Portal_Docs)
+[![Documentation](https://img.shields.io/badge/Documentation_Site-C9A84C?style=for-the-badge&logo=readthedocs&logoColor=black)](https://ns81000.github.io/LTSU_Fee_Portal_Docs/)
 
 The documentation includes 12 detailed pages with interactive navigation, dark mode support, and downloadable Markdown exports.
 

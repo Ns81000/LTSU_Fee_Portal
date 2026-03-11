@@ -1,28 +1,29 @@
-name: Supabase Keep-Alive
+name: Keep Supabase Alive
 
 on:
   schedule:
-    # Runs every Tuesday at 08:00 UTC and Friday at 18:00 UTC
-    - cron: "0 8 * * 2"
-    - cron: "0 18 * * 5"
-  workflow_dispatch: # Allow manual trigger from GitHub UI
+    # Runs every Wednesday and Saturday at 06:00 UTC (11:30 AM IST)
+    - cron: "0 6 * * 3,6"
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
-  keep-alive:
-    name: Ping Supabase
+  ping:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Ping Supabase
+        run: |
+          echo "Pinging Supabase to prevent free tier pausing..."
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
 
-      - name: Run keep-alive ping
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: python scripts/keep_alive.py
+          echo "Response status: $RESPONSE"
+
+          if [ "$RESPONSE" -ge 200 ] && [ "$RESPONSE" -lt 500 ]; then
+            echo "Supabase is alive and responding! (HTTP $RESPONSE)"
+          else
+            echo "Supabase ping failed with status: $RESPONSE"
+            exit 1
+          fi

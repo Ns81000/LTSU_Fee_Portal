@@ -215,8 +215,9 @@ export default function StaffManager() {
         },
       })
 
-      if (fnError) throw fnError
-      if (result?.error) throw new Error(result.error)
+      if (fnError || result?.error) {
+        throw new Error(result?.error || fnError?.message || 'Failed to create account')
+      }
 
       await logAction({
         actionType: role === 'cr' ? 'admin_created_cr' : 'admin_created_teacher',
@@ -251,8 +252,9 @@ export default function StaffManager() {
         },
       })
 
-      if (fnError) throw fnError
-      if (result?.error) throw new Error(result.error)
+      if (fnError || result?.error) {
+        throw new Error(result?.error || fnError?.message || 'Failed to reset password')
+      }
 
       await logAction({
         actionType: 'admin_reset_password',
@@ -296,19 +298,14 @@ export default function StaffManager() {
   }
 
   const handleDelete = async (user) => {
-    if (!window.confirm(`Permanently delete ${user.role.toUpperCase()} account "${user.full_name}"?\n\nThis will remove their section assignments and deactivate their auth account. Any fee requests they previously reviewed will lose their reviewer reference.\n\nConsider deactivating instead to preserve audit history.`)) return
+    if (!window.confirm(`Permanently delete ${user.role.toUpperCase()} account "${user.full_name}"?\n\nThis will remove their section assignments, user profile, and auth account. Any fee requests they previously reviewed will lose their reviewer reference.\n\nConsider deactivating instead to preserve audit history.`)) return
     try {
-      const { error: secErr } = await supabase.from('user_sections').delete().eq('user_id', user.id)
-      if (secErr) throw secErr
-
       const { data: result, error: fnError } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'deactivate_user', userId: user.id },
+        body: { action: 'delete_user', userId: user.id },
       })
-      if (fnError) throw fnError
-      if (result?.error) throw new Error(result.error)
-
-      const { error: delErr } = await supabase.from('users').delete().eq('id', user.id)
-      if (delErr) throw delErr
+      if (fnError || result?.error) {
+        throw new Error(result?.error || fnError?.message || 'Failed to delete account')
+      }
 
       await logAction({
         actionType: 'admin_deleted_staff',
@@ -353,10 +350,9 @@ export default function StaffManager() {
       addToast('Section already added', 'warning')
       return
     }
-    const isCr = editModal.user?.role === 'cr'
     setEditForm(f => ({
       ...f,
-      assignedSections: isCr ? [sec] : [...f.assignedSections, sec],
+      assignedSections: [...f.assignedSections, sec],
       section_id: '',
     }))
   }
@@ -372,12 +368,7 @@ export default function StaffManager() {
     const user = editModal.user
     if (!user) return
 
-    const isCr = user.role === 'cr'
-    if (isCr && editForm.assignedSections.length !== 1) {
-      addToast('A CR must have exactly one section assigned', 'error')
-      return
-    }
-    if (!isCr && editForm.assignedSections.length === 0) {
+    if (editForm.assignedSections.length === 0) {
       addToast('Please assign at least one section', 'error')
       return
     }
@@ -410,9 +401,9 @@ export default function StaffManager() {
         },
       })
 
+      await fetchUsers()
       addToast(`Section assignments updated for ${user.full_name}`, 'success')
       setEditModal({ open: false, user: null })
-      fetchUsers()
     } catch (err) {
       addToast(err.message || 'Failed to update section assignments', 'error')
     } finally {
@@ -453,13 +444,15 @@ export default function StaffManager() {
               </td>
               <td style={tdStyle}>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <Button
-                    variant="ghost"
-                    onClick={() => openEditModal(user)}
-                    style={{ padding: '4px 10px', fontSize: 'var(--text-xs)' }}
-                  >
-                    Edit
-                  </Button>
+                  {user.role === 'teacher' && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => openEditModal(user)}
+                      style={{ padding: '4px 10px', fontSize: 'var(--text-xs)' }}
+                    >
+                      Edit
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     onClick={() => { setResetModal({ open: true, user }); setNewPassword('') }}
@@ -670,70 +663,66 @@ export default function StaffManager() {
       {/* ── Edit Section Assignments Modal ── */}
       <Modal isOpen={editModal.open} onClose={() => setEditModal({ open: false, user: null })} title={`Edit Sections — ${editModal.user?.full_name || ''}`} maxWidth={560}>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: 12 }}>
-          Update the section assignments for <strong>{editModal.user?.full_name}</strong> ({editModal.user?.role?.toUpperCase()}).
-          {editModal.user?.role === 'cr' ? ' A CR can only be assigned to one section — selecting a new one will replace the current.' : ' A Teacher can be assigned to multiple sections.'}
+          Update sections for <strong>{editModal.user?.full_name}</strong>. A Teacher can be assigned to multiple sections.
         </p>
 
-        {/* Current assigned sections */}
-        {editForm.assignedSections.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-            {editForm.assignedSections.map(sec => (
-              <span
-                key={sec.id}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  background: 'var(--color-border-light)',
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--color-text)',
-                }}
-              >
-                {sec.name} ({sec.branches?.name || branches.find(b => b.id === sec.branch_id)?.name || ''} · {sec.specialisations?.name || specs.find(sp => sp.id === sec.specialisation_id)?.name || ''})
-                <button
-                  onClick={() => removeEditSection(sec.id)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'var(--color-error)' }}
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        {editForm.assignedSections.length === 0 && (
-          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)', marginBottom: 12 }}>No sections assigned. Add at least one.</p>
-        )}
+        <div>
+            {editForm.assignedSections.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                {editForm.assignedSections.map(sec => (
+                  <span
+                    key={sec.id}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '4px 10px', borderRadius: 6,
+                      background: 'var(--color-border-light)',
+                      fontSize: 'var(--text-xs)', color: 'var(--color-text)',
+                    }}
+                  >
+                    {sec.name} ({sec.branches?.name || branches.find(b => b.id === sec.branch_id)?.name || ''} · {sec.specialisations?.name || specs.find(sp => sp.id === sec.specialisation_id)?.name || ''})
+                    <button
+                      onClick={() => removeEditSection(sec.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'var(--color-error)' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {editForm.assignedSections.length === 0 && (
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error)', marginBottom: 12 }}>No sections assigned. Add at least one.</p>
+            )}
 
-        <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
-          <p style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text)', marginBottom: 8 }}>Add Section</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-3">
-            <Select
-              label="Branch"
-              value={editForm.branch_id}
-              onChange={e => setEditForm(f => ({ ...f, branch_id: e.target.value, specialisation_id: '', section_id: '' }))}
-              options={branchOptions}
-              placeholder="Select Branch"
-            />
-            <Select
-              label="Specialisation"
-              value={editForm.specialisation_id}
-              onChange={e => setEditForm(f => ({ ...f, specialisation_id: e.target.value, section_id: '' }))}
-              options={editFilteredSpecs.map(s => ({ value: s.id, label: s.name }))}
-              placeholder={editForm.branch_id ? 'Select Spec' : 'Branch first'}
-            />
-            <Select
-              label="Section"
-              value={editForm.section_id}
-              onChange={e => setEditForm(f => ({ ...f, section_id: e.target.value }))}
-              options={editFilteredSections.map(s => ({ value: s.id, label: s.name }))}
-              placeholder={editForm.specialisation_id ? 'Select Section' : 'Spec first'}
-            />
-          </div>
-          <Button variant="secondary" onClick={addEditSection} style={{ marginTop: 4, padding: '6px 14px', fontSize: 'var(--text-sm)' }}>
-            {editModal.user?.role === 'cr' ? 'Set Section' : '+ Add Section'}
-          </Button>
+            <div style={{ borderTop: '1px solid var(--color-border-light)', paddingTop: 12 }}>
+              <p style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text)', marginBottom: 8 }}>Add Section</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-3">
+                <Select
+                  label="Branch"
+                  value={editForm.branch_id}
+                  onChange={e => setEditForm(f => ({ ...f, branch_id: e.target.value, specialisation_id: '', section_id: '' }))}
+                  options={branchOptions}
+                  placeholder="Select Branch"
+                />
+                <Select
+                  label="Specialisation"
+                  value={editForm.specialisation_id}
+                  onChange={e => setEditForm(f => ({ ...f, specialisation_id: e.target.value, section_id: '' }))}
+                  options={editFilteredSpecs.map(s => ({ value: s.id, label: s.name }))}
+                  placeholder={editForm.branch_id ? 'Select Spec' : 'Branch first'}
+                />
+                <Select
+                  label="Section"
+                  value={editForm.section_id}
+                  onChange={e => setEditForm(f => ({ ...f, section_id: e.target.value }))}
+                  options={editFilteredSections.map(s => ({ value: s.id, label: s.name }))}
+                  placeholder={editForm.specialisation_id ? 'Select Section' : 'Spec first'}
+                />
+              </div>
+              <Button variant="secondary" onClick={addEditSection} style={{ marginTop: 4, padding: '6px 14px', fontSize: 'var(--text-sm)' }}>
+                + Add Section
+              </Button>
+            </div>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
